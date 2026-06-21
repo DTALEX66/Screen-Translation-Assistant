@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "code": "SL-OCR-001",
+      "message": "OCR service is not connected",
+      "recoverable": true
+    },
+    {
+      "code": "SL-OCR-003",
+      "message": "No text detected",
+      "recoverable": true
+    },
+    {
+      "code": "SL-TR-001",
+      "message": "Translation API key missing",
+      "recoverable": true
+    },
+    {
+      "code": "SL-PRIV-001",
+      "message": "Privacy blacklist matched",
+      "recoverable": false
+    }
+  ]
+}

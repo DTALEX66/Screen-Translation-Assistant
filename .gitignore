@@ -1,0 +1,12 @@
+﻿node_modules/
+dist/
+.vite/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+_bak.*
+_t.*
+_fix.*
+_build.*
+p.diff

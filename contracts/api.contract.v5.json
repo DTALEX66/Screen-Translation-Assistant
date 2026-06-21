@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ScreenLingua V5 API Contract",
+  "types": {
+    "BBox": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "[x,y,width,height] in physical pixels unless specified"
+    },
+    "OcrBlock": {
+      "type": "object",
+      "required": [
+        "id",
+        "text",
+        "bbox",
+        "confidence",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "bbox": {
+          "$ref": "#/types/BBox"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "source": {
+          "enum": [
+            "mock",
+            "ocr",
+            "uia",
+            "manual"
+          ]
+        },
+        "language": {
+          "type": "string"
+        }
+      }
+    },
+    "TranslateItem": {
+      "type": "object",
+      "required": [
+        "source",
+        "target",
+        "engine",
+        "cached"
+      ],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "cached": {
+          "type": "boolean"
+        },
+        "error_code": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "commands": {
+    "mock_ocr_current_screen": {
+      "returns": "OcrBlock[]"
+    },
+    "translate_blocks": {
+      "input": "OcrBlock[]",
+      "returns": "TranslateItem[]"
+    },
+    "save_history": {
+      "input": "TranslateItem[]",
+      "returns": {
+        "ok": "boolean"
+      }
+    }
+  }
+}

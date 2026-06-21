@@ -1,0 +1,61 @@
+{
+  "blocks": [
+    {
+      "id": "b1",
+      "text": "Render Settings",
+      "bbox": [
+        120,
+        96,
+        160,
+        28
+      ],
+      "confidence": 0.98,
+      "source": "mock",
+      "language": "en"
+    },
+    {
+      "id": "b2",
+      "text": "Subdivision Surface",
+      "bbox": [
+        120,
+        138,
+        210,
+        28
+      ],
+      "confidence": 0.96,
+      "source": "mock",
+      "language": "en"
+    },
+    {
+      "id": "b3",
+      "text": "Export selected objects",
+      "bbox": [
+        120,
+        180,
+        240,
+        28
+      ],
+      "confidence": 0.94,
+      "source": "mock",
+      "language": "en"
+    },
+    {
+      "id": "b4",
+      "text": "API key is missing",
+      "bbox": [
+        120,
+        224,
+        190,
+        28
+      ],
+      "confidence": 0.92,
+      "source": "mock",
+      "language": "en"
+    }
+  ],
+  "screen": {
+    "width": 1920,
+    "height": 1080,
+    "scale_factor": 1.0
+  }
+}

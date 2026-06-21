@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "source": "Render Settings",
+      "target": "渲染设置",
+      "engine": "mock",
+      "cached": false
+    },
+    {
+      "source": "Subdivision Surface",
+      "target": "细分曲面",
+      "engine": "mock",
+      "cached": false
+    },
+    {
+      "source": "Export selected objects",
+      "target": "导出所选对象",
+      "engine": "mock",
+      "cached": false
+    },
+    {
+      "source": "API key is missing",
+      "target": "缺少 API key",
+      "engine": "mock",
+      "cached": false
+    }
+  ],
+  "usage": {
+    "input_chars": 76,
+    "estimated_cost_usd": 0.0
+  }
+}
