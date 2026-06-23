@@ -1,3 +1,11 @@
+﻿export type Page = "home" | "history" | "terminology" | "pinned" | "privacy" | "settings";
+
+export interface NavItem {
+  key: Page;
+  label: string;
+  icon: string;
+}
+
 export interface TranslationBlock {
   sourceText: string;
   targetText: string;

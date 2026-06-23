@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
+use tauri::State;
 
 use crate::db::TranslationCache;
 use crate::translation::mock_translate;
 use crate::diagnostics::{mock_snapshot, DiagnosticsSnapshot};
 use crate::settings::AppSettings;
 use crate::privacy::{is_window_allowed, PrivacyCheckResult};
+use crate::overlay::{OverlayBlock, OverlayMode};
+
+// ── 请求/响应数据结构 ──────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
 pub struct SimulateTranslateRequest {
@@ -61,6 +65,8 @@ pub struct AppStatus {
     pub ocr_endpoint: String,
 }
 
+// ── Tauri Commands ─────────────────────────────────────────────
+
 #[tauri::command]
 pub fn get_app_status() -> AppStatus {
     AppStatus {
@@ -71,26 +77,47 @@ pub fn get_app_status() -> AppStatus {
     }
 }
 
+/// 核心翻译 command：异步调用 OCR sidecar，通过 Tauri State 共享 DB 连接，
+/// 避免每次请求都重新 open 数据库。
 #[tauri::command]
-pub fn simulate_region_translate(request: SimulateTranslateRequest) -> Result<TranslateResponse, String> {
+pub async fn simulate_region_translate(
+    cache: State<'_, TranslationCache>,
+    request: SimulateTranslateRequest,
+) -> Result<TranslateResponse, String> {
     let start = Instant::now();
     let target_language = request.target_language.unwrap_or_else(|| "zh-CN".to_string());
     let mode = request.mode.unwrap_or_else(|| "mock".to_string());
 
-    let ocr = call_ocr_sidecar().unwrap_or_else(|_| OcrResponse {
+    // 异步调用 OCR sidecar
+    let ocr = call_ocr_sidecar().await.unwrap_or_else(|_| OcrResponse {
         ok: true,
         provider: "rust-fallback-mock".to_string(),
         elapsed_ms: 0,
         error: None,
         blocks: vec![
-            OcrBlock { text: "Render Settings".to_string(), bbox: [420, 180, 570, 212], confidence: 0.96 },
-            OcrBlock { text: "Subdivision Surface".to_string(), bbox: [440, 260, 620, 292], confidence: 0.94 },
-            OcrBlock { text: "Permission Denied".to_string(), bbox: [380, 330, 548, 362], confidence: 0.97 },
-            OcrBlock { text: "Prompt Engineering".to_string(), bbox: [360, 410, 560, 442], confidence: 0.95 },
+            OcrBlock {
+                text: "Render Settings".to_string(),
+                bbox: [420, 180, 570, 212],
+                confidence: 0.96,
+            },
+            OcrBlock {
+                text: "Subdivision Surface".to_string(),
+                bbox: [440, 260, 620, 292],
+                confidence: 0.94,
+            },
+            OcrBlock {
+                text: "Permission Denied".to_string(),
+                bbox: [380, 330, 548, 362],
+                confidence: 0.97,
+            },
+            OcrBlock {
+                text: "Prompt Engineering".to_string(),
+                bbox: [360, 410, 560, 442],
+                confidence: 0.95,
+            },
         ],
     });
 
-    let cache = TranslationCache::open_default().map_err(|err| err.to_string())?;
     let mut blocks = Vec::new();
 
     for block in ocr.blocks {
@@ -98,10 +125,21 @@ pub fn simulate_region_translate(request: SimulateTranslateRequest) -> Result<Tr
             continue;
         }
 
-        if let Some(cached) = cache.lookup(&block.text, &target_language).map_err(|err| err.to_string())? {
+        // 把 DB 操作丢到 spawn_blocking 里，避免阻塞 async runtime。
+        // TranslationCache 是 Arc 包裹的，clone 开销很小。
+        let cache_for_lookup = cache.inner().clone();
+        let source = block.text.clone();
+        let lang = target_language.clone();
+
+        let cached = tokio::task::spawn_blocking(move || cache_for_lookup.lookup(&source, &lang))
+            .await
+            .map_err(|join_err| format!("缓存查询线程异常: {}", join_err))?
+            .map_err(|db_err| format!("数据库查询失败: {}", db_err))?;
+
+        if let Some(cached_text) = cached {
             blocks.push(TranslationBlock {
                 source_text: block.text,
-                target_text: cached,
+                target_text: cached_text,
                 bbox: block.bbox,
                 confidence: block.confidence,
                 from_cache: true,
@@ -109,7 +147,20 @@ pub fn simulate_region_translate(request: SimulateTranslateRequest) -> Result<Tr
             });
         } else {
             let translated = mock_translate(&block.text, &target_language);
-            cache.insert(&block.text, &target_language, &translated, "mock").map_err(|err| err.to_string())?;
+
+            // 插入缓存同样走 spawn_blocking
+            let cache_for_insert = cache.inner().clone();
+            let source = block.text.clone();
+            let lang = target_language.clone();
+            let translation = translated.clone();
+
+            tokio::task::spawn_blocking(move || {
+                cache_for_insert.insert(&source, &lang, &translation, "mock")
+            })
+            .await
+            .map_err(|join_err| format!("缓存写入线程异常: {}", join_err))?
+            .map_err(|db_err| format!("数据库写入失败: {}", db_err))?;
+
             blocks.push(TranslationBlock {
                 source_text: block.text,
                 target_text: translated,
@@ -130,15 +181,17 @@ pub fn simulate_region_translate(request: SimulateTranslateRequest) -> Result<Tr
     })
 }
 
-fn call_ocr_sidecar() -> Result<OcrResponse, reqwest::Error> {
-    let client = reqwest::blocking::Client::new();
+/// 异步调用 OCR sidecar（非阻塞 reqwest）。
+async fn call_ocr_sidecar() -> Result<OcrResponse, reqwest::Error> {
+    let client = reqwest::Client::new();
     client
         .post("http://127.0.0.1:8765/ocr")
         .json(&serde_json::json!({"mode": "mock", "language_hint": "en"}))
-        .send()?
+        .send()
+        .await?
         .json::<OcrResponse>()
+        .await
 }
-
 
 #[tauri::command]
 pub fn get_diagnostics_snapshot() -> DiagnosticsSnapshot {
@@ -146,7 +199,58 @@ pub fn get_diagnostics_snapshot() -> DiagnosticsSnapshot {
 }
 
 #[tauri::command]
-pub fn check_privacy_for_window(app_name: Option<String>, window_title: Option<String>) -> PrivacyCheckResult {
+pub fn check_privacy_for_window(
+    app_name: Option<String>,
+    window_title: Option<String>,
+) -> PrivacyCheckResult {
     let settings = AppSettings::default();
     is_window_allowed(app_name.as_deref(), window_title.as_deref(), &settings)
+}
+
+// ── 截图命令 ───────────────────────────────────────────────────
+
+/// 截图指定区域，返回 PNG 字节
+#[tauri::command]
+pub fn capture_screen_region(x: i32, y: i32, width: i32, height: i32) -> Result<Vec<u8>, String> {
+    crate::capture::capture_region(x, y, width, height)
+}
+
+/// 全屏截图，可选指定显示器
+#[tauri::command]
+pub fn capture_full_screen(display_id: Option<String>) -> Result<Vec<u8>, String> {
+    crate::capture::capture_full_screen(display_id)
+}
+
+// ── 悬浮窗命令 ─────────────────────────────────────────────────
+
+/// 显示翻译悬浮窗
+#[tauri::command]
+pub fn show_overlay(app: tauri::AppHandle, blocks: Vec<OverlayBlock>, mode: String) -> Result<(), String> {
+    let mode = match mode.as_str() {
+        "bubble" => OverlayMode::Bubble,
+        "panel" => OverlayMode::RegionPanel,
+        "inline" => OverlayMode::Inline,
+        "subtitle" => OverlayMode::Subtitle,
+        _ => OverlayMode::Bubble,
+    };
+    crate::overlay::create_overlay_window(&app, &blocks, mode)
+}
+
+/// 隐藏翻译悬浮窗
+#[tauri::command]
+pub fn hide_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    crate::overlay::close_overlay(&app)
+}
+
+// ── 翻译命令 ───────────────────────────────────────────────────
+
+/// 调用翻译引擎批量翻译文本
+#[tauri::command]
+pub async fn translate_text(texts: Vec<String>, target_lang: String, engine: String, api_key: String, api_base: Option<String>, model: Option<String>) -> Result<Vec<String>, String> {
+    let config = crate::translation::TranslationConfig { engine: engine.clone(), api_key, api_base, model };
+    match engine.as_str() {
+        "openai" => crate::translation::translate_via_openai(&texts, &target_lang, &config).await,
+        "deepseek" => crate::translation::translate_via_deepseek(&texts, &target_lang, &config).await,
+        _ => Ok(texts.iter().map(|t| crate::translation::mock_translate(t, &target_lang)).collect()),
+    }
 }

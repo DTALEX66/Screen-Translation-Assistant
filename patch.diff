@@ -1,7 +1,0 @@
-*** Begin Patch  
-*** Update File: src/App.tsx  
-@@ import { fallbackMockResponse } from './mock';  
-+import { getMockResponse, resetMockCache, getMockScenes } from './mock';  
-@@ import { invoke } from '@tauri-apps/api/core';  
-+var scenes = getMockScenes();  
-*** End Patch 
