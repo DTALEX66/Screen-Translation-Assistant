@@ -1,4 +1,5 @@
-﻿import type { TranslateResponse, DiagnosticsSnapshot } from "../types";
+import type { SidecarStatusState } from "../hooks";
+import type { DiagnosticsSnapshot, TranslateResponse } from "../types";
 
 interface HomePageProps {
   scenes: string[];
@@ -12,6 +13,7 @@ interface HomePageProps {
   diagnostics: DiagnosticsSnapshot | null;
   toast: string;
   summary: string;
+  sidecarStatus: SidecarStatusState;
   onTranslate: () => void;
   onNextScene: () => void;
   onToggleErrorMode: () => void;
@@ -33,6 +35,7 @@ export function HomePage({
   diagnostics,
   toast,
   summary,
+  sidecarStatus,
   onTranslate,
   onNextScene,
   onToggleErrorMode,
@@ -41,91 +44,126 @@ export function HomePage({
   onCloseError,
   onCopyTarget,
 }: HomePageProps) {
+  const health = sidecarStatus.health;
+  const cache = health?.cache;
+  const serviceLabel = sidecarStatus.error
+    ? "服务离线"
+    : health?.ok
+      ? "本地服务在线"
+      : sidecarStatus.loading
+        ? "连接中"
+        : "等待服务";
+  const serviceTone = sidecarStatus.error ? "bad" : health?.ok ? "good" : "wait";
+  const cacheText = cache ? `${cache.ocr}/${cache.ocr_max} · ${cache.translation}/${cache.translation_max}` : "-";
+  const resultCount = result?.ok ? result.blocks.length : 0;
+
   return (
-    <section className="content">
-      <p className="eyebrow">Windows 系统级屏幕翻译助手</p>
-      <h1>不只翻网页，直接翻译整个电脑屏幕。</h1>
-      <p className="lead">框选、悬停、固定区域和缓存闭环，Mock 优先，逐层替换真实实现。</p>
-      <div className="home-hero">
-        <div className="hero-visual">
-          <div className="screen-mock">
-            <div className="mock-block">Render Settings</div>
-            <div className="mock-arrow">→</div>
-            <div className="mock-block">渲染设置</div>
-          </div>
+    <section className="content client-workspace">
+      <header className="workspace-header">
+        <div>
+          <p className="eyebrow">本地工作台</p>
+          <h1>屏幕翻译控制台</h1>
+          <p className="lead">截图、OCR、翻译、术语和缓存都在本机处理。</p>
         </div>
-      </div>
+        <div className={"service-pill " + serviceTone}>
+          <span>{serviceLabel}</span>
+          <strong>{health?.version || "sidecar"}</strong>
+        </div>
+      </header>
 
-      <div className="actions">
-        <button
-          className="primary"
-          onClick={onTranslate}
-          disabled={loading}
-        >
-          {loading ? "翻译中..." : "模拟框选翻译"}
-        </button>
-        <button onClick={onNextScene}>
-          下一场景 ({scenes[(sceneIndex + 1) % scenes.length]})
-        </button>
-        <button onClick={onToggleErrorMode}>
-          {errorMode ? "✓ 恢复正常" : "模拟 OCR 错误"}
-        </button>
-        <button onClick={onClearCache}>清除缓存</button>
-        <button onClick={onDiagnostics}>诊断检查</button>
-      </div>
-
-      {toast && <div className="toast">{toast}</div>}
-
-      <section className="status-grid">
+      <section className="client-status-strip">
         <article>
-          <span>场景</span>
-          <strong>{scenes[sceneIndex]}</strong>
-          <small>第 {translateCount + 1} 次翻译</small>
+          <span>OCR</span>
+          <strong>{health?.ocr.provider || "RapidOCR"}</strong>
+          <small>{health?.ocr.rapidocr_available ? "可用" : "等待检测"}</small>
         </article>
         <article>
-          <span>引擎</span>
-          <strong>Mock + Cache</strong>
-          <small>重复点击命中缓存</small>
+          <span>翻译</span>
+          <strong>{health?.translation.provider || "Argos"}</strong>
+          <small>{health?.translation.argos_available ? "可用" : "等待检测"}</small>
         </article>
         <article>
-          <span>状态</span>
-          <strong>{errorMode ? "错误模拟" : "正常"}</strong>
-          <small>{errorMode ? "OCR 将返回故障" : "就绪"}</small>
+          <span>术语</span>
+          <strong>{health?.glossary.terms ?? "-"}</strong>
+          <small>{health ? `${health.glossary.brand_replacements} 个品牌替换` : "等待检测"}</small>
+        </article>
+        <article>
+          <span>缓存</span>
+          <strong>{cacheText}</strong>
+          <small>OCR · 翻译</small>
         </article>
       </section>
 
-      <section
-        className="stats-mini"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 12,
-          marginTop: 28,
-        }}
-      >
-        {[
-          { label: "翻译次数", value: translateCount },
-          { label: "处理字数", value: totalWords },
-          { label: "缓存命中", value: cacheHits },
-          { label: "引擎", value: "Mock" },
-        ].map((stat, index) => (
-          <article
-            key={index}
-            style={{
-              padding: 16,
-              background: "rgba(255, 255, 255, .75)",
-              borderRadius: 16,
-              textAlign: "center",
-            }}
-          >
-            <span style={{ fontSize: 12, color: "#667085" }}>
-              {stat.label}
+      {toast && <div className="toast">{toast}</div>}
+
+      <section className="translator-workbench">
+        <div className="capture-panel">
+          <div className="panel-header">
+            <div>
+              <h2>捕获队列</h2>
+              <span>{scenes[sceneIndex]} · 第 {translateCount + 1} 次</span>
+            </div>
+            <span className={"run-state " + (loading ? "busy" : errorMode ? "bad" : "ready")}>
+              {loading ? "处理中" : errorMode ? "错误模拟" : "就绪"}
             </span>
-            <strong style={{ fontSize: 24, display: "block" }}>
-              {stat.value}
-            </strong>
+          </div>
+
+          <div className="capture-preview">
+            <div className="preview-window">
+              <div className="preview-toolbar">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="preview-grid">
+                <div className="preview-line wide" />
+                <div className="preview-line" />
+                <div className="translation-chip">
+                  <span>Render Settings</span>
+                  <strong>渲染设置</strong>
+                </div>
+                <div className="preview-line short" />
+              </div>
+            </div>
+          </div>
+
+          <div className="actions command-row">
+            <button className="primary large-command" onClick={onTranslate} disabled={loading}>
+              {loading ? "翻译中..." : "本地截图翻译"}
+            </button>
+            <button onClick={onNextScene}>下一场景</button>
+            <button onClick={onDiagnostics}>诊断</button>
+          </div>
+
+          <div className="secondary-actions">
+            <button onClick={onToggleErrorMode}>
+              {errorMode ? "恢复正常" : "模拟 OCR 错误"}
+            </button>
+            <button onClick={onClearCache}>清除缓存</button>
+            <button onClick={() => { void sidecarStatus.refresh(); }} disabled={sidecarStatus.loading}>
+              刷新服务
+            </button>
+          </div>
+        </div>
+
+        <aside className="operator-panel">
+          <article>
+            <span>翻译次数</span>
+            <strong>{translateCount}</strong>
           </article>
-        ))}
+          <article>
+            <span>处理字数</span>
+            <strong>{totalWords}</strong>
+          </article>
+          <article>
+            <span>缓存命中</span>
+            <strong>{cacheHits}</strong>
+          </article>
+          <article>
+            <span>结果块</span>
+            <strong>{resultCount}</strong>
+          </article>
+        </aside>
       </section>
 
       {diagnostics && (
@@ -157,20 +195,17 @@ export function HomePage({
 
       {result && !result.ok && (
         <div className="error-banner">
-          <strong>⚠️ 翻译失败</strong>
+          <strong>翻译失败</strong>
           <span>{result.error}</span>
           <button onClick={onCloseError}>关闭错误模式</button>
         </div>
       )}
 
       {!result && (
-        <div className="empty-state">
-          <div className="empty-icon">🠪</div>
-          <h3>点击"模拟框选翻译"开始</h3>
-          <p>选择不同软件场景，重复点击观察缓存命中效果。</p>
-          <button className="primary" onClick={onTranslate}>
-            开始翻译
-          </button>
+        <div className="empty-state compact-empty">
+          <div className="empty-icon">→</div>
+          <h3>等待第一组截图结果</h3>
+          <p>固定区域 · 本地 OCR · 本地翻译</p>
         </div>
       )}
 
@@ -181,18 +216,14 @@ export function HomePage({
             <span>{summary}</span>
           </div>
           {result.blocks.map((block, index) => (
-            <div
-              className="result-row"
-              key={block.sourceText + "-" + index}
-            >
+            <div className="result-row" key={block.sourceText + "-" + index}>
               <div className="source">
                 <span>原文</span>
                 <strong>{block.sourceText}</strong>
               </div>
               <div
-                className="target"
+                className="target clickable"
                 onClick={() => { onCopyTarget(block.targetText); }}
-                style={{ cursor: "pointer" }}
                 title="点击复制"
               >
                 <span>译文</span>
@@ -202,7 +233,7 @@ export function HomePage({
                 <span>bbox [{block.bbox.join(", ")}]</span>
                 <span>{Math.round(block.confidence * 100)}%</span>
                 <span className={block.fromCache ? "cache-hit" : ""}>
-                  {block.fromCache ? "⚡ 缓存命中" : block.engine}
+                  {block.fromCache ? "缓存命中" : block.engine}
                 </span>
               </div>
             </div>

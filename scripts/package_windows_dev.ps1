@@ -1,14 +1,15 @@
-# ScreenLingua V4 Windows dev packaging placeholder
-# Run from scaffold/ directory.
-
 $ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $PSScriptRoot
+Set-Location $Root
 
-Write-Host "ScreenLingua Windows dev package check" -ForegroundColor Cyan
-python .\scripts\v4_self_check.py
+Write-Host "ScreenLingua Windows desktop package readiness" -ForegroundColor Cyan
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_desktop_env.ps1
 
-Write-Host "If Node/Rust/Tauri dependencies are installed, run:" -ForegroundColor Yellow
-Write-Host "  npm install"
-Write-Host "  npm run tauri dev"
-Write-Host "  npm run tauri build"
+Write-Host ""
+Write-Host "Environment is ready. Useful commands:" -ForegroundColor Yellow
+Write-Host "  pnpm install"
+Write-Host "  pnpm env:install"
+Write-Host "  pnpm tauri:dev"
+Write-Host "  pnpm tauri:build"
 
-Write-Host "V4 packaging script completed basic checks." -ForegroundColor Green
+Write-Host "Windows desktop package readiness check completed." -ForegroundColor Green

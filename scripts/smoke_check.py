@@ -37,12 +37,14 @@ def main() -> None:
         "src-tauri/tauri.conf.json",
         "src-tauri/src/main.rs",
         "sidecars/ocr_service/main.py",
+        "config/glossary.zh-CN.json",
         "database/schema.sql",
     ]
     for item in required:
         check_file(item)
     check_json("package.json")
     check_json("src-tauri/tauri.conf.json")
+    check_json("config/glossary.zh-CN.json")
     check_sql()
     print("ScreenLingua scaffold smoke check passed")
 

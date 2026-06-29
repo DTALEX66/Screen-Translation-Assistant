@@ -1,20 +1,27 @@
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::time::Instant;
 use tauri::State;
 
+use crate::capture::CaptureRegion;
 use crate::db::TranslationCache;
-use crate::translation::mock_translate;
 use crate::diagnostics::{mock_snapshot, DiagnosticsSnapshot};
-use crate::settings::AppSettings;
-use crate::privacy::{is_window_allowed, PrivacyCheckResult};
 use crate::overlay::{OverlayBlock, OverlayMode};
-
-// ── 请求/响应数据结构 ──────────────────────────────────────────
+use crate::privacy::{is_window_allowed, PrivacyCheckResult};
+use crate::settings::AppSettings;
+use crate::translation::mock_translate;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SimulateTranslateRequest {
     pub mode: Option<String>,
     pub target_language: Option<String>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub display_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,6 +37,23 @@ pub struct OcrResponse {
     pub provider: String,
     pub elapsed_ms: i32,
     pub blocks: Vec<OcrBlock>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalTranslationRequest {
+    pub texts: Vec<String>,
+    pub target_language: String,
+    pub engine: String,
+    pub source_language: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalTranslationResponse {
+    pub ok: bool,
+    pub provider: String,
+    pub elapsed_ms: i32,
+    pub translations: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -65,8 +89,6 @@ pub struct AppStatus {
     pub ocr_endpoint: String,
 }
 
-// ── Tauri Commands ─────────────────────────────────────────────
-
 #[tauri::command]
 pub fn get_app_status() -> AppStatus {
     AppStatus {
@@ -77,19 +99,110 @@ pub fn get_app_status() -> AppStatus {
     }
 }
 
-/// 核心翻译 command：异步调用 OCR sidecar，通过 Tauri State 共享 DB 连接，
-/// 避免每次请求都重新 open 数据库。
 #[tauri::command]
 pub async fn simulate_region_translate(
     cache: State<'_, TranslationCache>,
     request: SimulateTranslateRequest,
 ) -> Result<TranslateResponse, String> {
     let start = Instant::now();
-    let target_language = request.target_language.unwrap_or_else(|| "zh-CN".to_string());
-    let mode = request.mode.unwrap_or_else(|| "mock".to_string());
+    let target_language = request
+        .target_language
+        .clone()
+        .unwrap_or_else(|| "zh-CN".to_string());
+    let mode = request.mode.clone().unwrap_or_else(|| "local".to_string());
 
-    // 异步调用 OCR sidecar
-    let ocr = call_ocr_sidecar().await.unwrap_or_else(|_| OcrResponse {
+    let capture_path = capture_request_region_to_temp_file(&request).ok();
+    let ocr = match call_ocr_sidecar(capture_path.as_ref()).await {
+        Ok(response) => response,
+        Err(_) => fallback_ocr_response(),
+    };
+    if let Some(path) = capture_path {
+        let _ = fs::remove_file(path);
+    }
+    let mut block_slots: Vec<Option<TranslationBlock>> = Vec::new();
+    let mut cache_misses: Vec<(usize, OcrBlock)> = Vec::new();
+
+    for block in ocr.blocks {
+        if block.text.trim().is_empty() {
+            continue;
+        }
+
+        let slot_index = block_slots.len();
+        let cache_for_lookup = cache.inner().clone();
+        let source = block.text.clone();
+        let lang = target_language.clone();
+
+        let cached = tokio::task::spawn_blocking(move || cache_for_lookup.lookup(&source, &lang))
+            .await
+            .map_err(|join_err| format!("cache lookup thread failed: {}", join_err))?
+            .map_err(|db_err| format!("cache lookup failed: {}", db_err))?;
+
+        if let Some(cached_text) = cached {
+            block_slots.push(Some(TranslationBlock {
+                source_text: block.text,
+                target_text: cached_text,
+                bbox: block.bbox,
+                confidence: block.confidence,
+                from_cache: true,
+                engine: "sqlite-cache".to_string(),
+            }));
+            continue;
+        }
+
+        block_slots.push(None);
+        cache_misses.push((slot_index, block));
+    }
+
+    if !cache_misses.is_empty() {
+        let texts_to_translate = cache_misses
+            .iter()
+            .map(|(_, block)| block.text.clone())
+            .collect::<Vec<_>>();
+        let (translations, engine) =
+            translate_texts_locally(&texts_to_translate, &target_language).await;
+
+        let should_cache = !engine.contains("fallback") && !engine.starts_with("mock");
+
+        for ((slot_index, block), translated) in cache_misses.into_iter().zip(translations) {
+            if should_cache {
+                let cache_for_insert = cache.inner().clone();
+                let source = block.text.clone();
+                let lang = target_language.clone();
+                let translation = translated.clone();
+                let cache_engine = engine.clone();
+
+                tokio::task::spawn_blocking(move || {
+                    cache_for_insert.insert(&source, &lang, &translation, &cache_engine)
+                })
+                .await
+                .map_err(|join_err| format!("cache insert thread failed: {}", join_err))?
+                .map_err(|db_err| format!("cache insert failed: {}", db_err))?;
+            }
+
+            block_slots[slot_index] = Some(TranslationBlock {
+                source_text: block.text,
+                target_text: translated,
+                bbox: block.bbox,
+                confidence: block.confidence,
+                from_cache: false,
+                engine: engine.clone(),
+            });
+        }
+    }
+
+    let blocks = block_slots.into_iter().flatten().collect();
+
+    Ok(TranslateResponse {
+        ok: true,
+        mode,
+        elapsed_ms: start.elapsed().as_millis() as i64,
+        blocks,
+        error: None,
+    })
+}
+
+fn fallback_ocr_response() -> OcrResponse {
+    OcrResponse {
         ok: true,
         provider: "rust-fallback-mock".to_string(),
         elapsed_ms: 0,
@@ -116,81 +229,119 @@ pub async fn simulate_region_translate(
                 confidence: 0.95,
             },
         ],
-    });
-
-    let mut blocks = Vec::new();
-
-    for block in ocr.blocks {
-        if block.text.trim().is_empty() {
-            continue;
-        }
-
-        // 把 DB 操作丢到 spawn_blocking 里，避免阻塞 async runtime。
-        // TranslationCache 是 Arc 包裹的，clone 开销很小。
-        let cache_for_lookup = cache.inner().clone();
-        let source = block.text.clone();
-        let lang = target_language.clone();
-
-        let cached = tokio::task::spawn_blocking(move || cache_for_lookup.lookup(&source, &lang))
-            .await
-            .map_err(|join_err| format!("缓存查询线程异常: {}", join_err))?
-            .map_err(|db_err| format!("数据库查询失败: {}", db_err))?;
-
-        if let Some(cached_text) = cached {
-            blocks.push(TranslationBlock {
-                source_text: block.text,
-                target_text: cached_text,
-                bbox: block.bbox,
-                confidence: block.confidence,
-                from_cache: true,
-                engine: "sqlite-cache".to_string(),
-            });
-        } else {
-            let translated = mock_translate(&block.text, &target_language);
-
-            // 插入缓存同样走 spawn_blocking
-            let cache_for_insert = cache.inner().clone();
-            let source = block.text.clone();
-            let lang = target_language.clone();
-            let translation = translated.clone();
-
-            tokio::task::spawn_blocking(move || {
-                cache_for_insert.insert(&source, &lang, &translation, "mock")
-            })
-            .await
-            .map_err(|join_err| format!("缓存写入线程异常: {}", join_err))?
-            .map_err(|db_err| format!("数据库写入失败: {}", db_err))?;
-
-            blocks.push(TranslationBlock {
-                source_text: block.text,
-                target_text: translated,
-                bbox: block.bbox,
-                confidence: block.confidence,
-                from_cache: false,
-                engine: "mock".to_string(),
-            });
-        }
     }
-
-    Ok(TranslateResponse {
-        ok: true,
-        mode,
-        elapsed_ms: start.elapsed().as_millis() as i64,
-        blocks,
-        error: None,
-    })
 }
 
-/// 异步调用 OCR sidecar（非阻塞 reqwest）。
-async fn call_ocr_sidecar() -> Result<OcrResponse, reqwest::Error> {
+fn capture_request_region_to_temp_file(
+    request: &SimulateTranslateRequest,
+) -> Result<PathBuf, String> {
+    let region = CaptureRegion {
+        x: request.x.unwrap_or(0),
+        y: request.y.unwrap_or(0),
+        width: request.width.unwrap_or(1200),
+        height: request.height.unwrap_or(800),
+        display_id: request.display_id.clone(),
+    };
+
+    let png_bytes = crate::capture::capture_region(&region)?;
+    let file_name = format!(
+        "screenlingua_capture_{}_{}.png",
+        std::process::id(),
+        start_timestamp_millis()
+    );
+    let path = std::env::temp_dir().join(file_name);
+    fs::write(&path, png_bytes).map_err(|err| {
+        format!(
+            "failed to write temporary capture file {}: {}",
+            path.display(),
+            err
+        )
+    })?;
+    Ok(path)
+}
+
+fn start_timestamp_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0)
+}
+
+async fn translate_texts_locally(
+    source_texts: &[String],
+    target_language: &str,
+) -> (Vec<String>, String) {
+    if source_texts.is_empty() {
+        return (Vec::new(), "local-empty".to_string());
+    }
+
+    match call_local_translate_sidecar(
+        source_texts.to_vec(),
+        target_language,
+        "local",
+    )
+    .await
+    {
+        Ok(response) if response.ok && response.translations.len() == source_texts.len() => {
+            (response.translations, response.provider)
+        }
+        _ => (
+            source_texts
+                .iter()
+                .map(|source_text| mock_translate(source_text, target_language))
+                .collect(),
+            "rust-local-fallback".to_string(),
+        ),
+    }
+}
+
+async fn call_ocr_sidecar(image_path: Option<&PathBuf>) -> Result<OcrResponse, reqwest::Error> {
     let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "mode": "local",
+        "language_hint": "en",
+        "image_path": image_path.map(|path| path.to_string_lossy().to_string()),
+    });
+
     client
         .post("http://127.0.0.1:8765/ocr")
-        .json(&serde_json::json!({"mode": "mock", "language_hint": "en"}))
+        .json(&body)
         .send()
         .await?
         .json::<OcrResponse>()
         .await
+}
+
+async fn call_local_translate_sidecar(
+    texts: Vec<String>,
+    target_language: &str,
+    engine: &str,
+) -> Result<LocalTranslationResponse, String> {
+    let client = reqwest::Client::new();
+    let request = LocalTranslationRequest {
+        texts,
+        target_language: target_language.to_string(),
+        engine: engine.to_string(),
+        source_language: "en".to_string(),
+    };
+
+    let response = client
+        .post("http://127.0.0.1:8765/translate")
+        .json(&request)
+        .send()
+        .await
+        .map_err(|err| format!("local translation sidecar request failed: {}", err))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("local translation sidecar returned {}: {}", status, body));
+    }
+
+    response
+        .json::<LocalTranslationResponse>()
+        .await
+        .map_err(|err| format!("local translation sidecar response invalid: {}", err))
 }
 
 #[tauri::command]
@@ -207,25 +358,29 @@ pub fn check_privacy_for_window(
     is_window_allowed(app_name.as_deref(), window_title.as_deref(), &settings)
 }
 
-// ── 截图命令 ───────────────────────────────────────────────────
-
-/// 截图指定区域，返回 PNG 字节
 #[tauri::command]
 pub fn capture_screen_region(x: i32, y: i32, width: i32, height: i32) -> Result<Vec<u8>, String> {
-    crate::capture::capture_region(x, y, width, height)
+    let region = CaptureRegion {
+        x,
+        y,
+        width,
+        height,
+        display_id: None,
+    };
+    crate::capture::capture_region(&region)
 }
 
-/// 全屏截图，可选指定显示器
 #[tauri::command]
 pub fn capture_full_screen(display_id: Option<String>) -> Result<Vec<u8>, String> {
-    crate::capture::capture_full_screen(display_id)
+    crate::capture::capture_full_screen(display_id.as_deref())
 }
 
-// ── 悬浮窗命令 ─────────────────────────────────────────────────
-
-/// 显示翻译悬浮窗
 #[tauri::command]
-pub fn show_overlay(app: tauri::AppHandle, blocks: Vec<OverlayBlock>, mode: String) -> Result<(), String> {
+pub fn show_overlay(
+    app: tauri::AppHandle,
+    blocks: Vec<OverlayBlock>,
+    mode: String,
+) -> Result<(), String> {
     let mode = match mode.as_str() {
         "bubble" => OverlayMode::Bubble,
         "panel" => OverlayMode::RegionPanel,
@@ -236,21 +391,42 @@ pub fn show_overlay(app: tauri::AppHandle, blocks: Vec<OverlayBlock>, mode: Stri
     crate::overlay::create_overlay_window(&app, &blocks, mode)
 }
 
-/// 隐藏翻译悬浮窗
 #[tauri::command]
 pub fn hide_overlay(app: tauri::AppHandle) -> Result<(), String> {
     crate::overlay::close_overlay(&app)
 }
 
-// ── 翻译命令 ───────────────────────────────────────────────────
-
-/// 调用翻译引擎批量翻译文本
 #[tauri::command]
-pub async fn translate_text(texts: Vec<String>, target_lang: String, engine: String, api_key: String, api_base: Option<String>, model: Option<String>) -> Result<Vec<String>, String> {
-    let config = crate::translation::TranslationConfig { engine: engine.clone(), api_key, api_base, model };
+pub async fn translate_text(
+    texts: Vec<String>,
+    target_lang: String,
+    engine: String,
+    api_key: String,
+    api_base: Option<String>,
+    model: Option<String>,
+) -> Result<Vec<String>, String> {
+    let config = crate::translation::TranslationConfig {
+        engine: engine.clone(),
+        api_key,
+        api_base,
+        model,
+    };
+
     match engine.as_str() {
+        "local" | "argos" => match call_local_translate_sidecar(texts.clone(), &target_lang, &engine).await {
+            Ok(response) if response.ok && response.translations.len() == texts.len() => {
+                Ok(response.translations)
+            }
+            _ => Ok(texts
+                .iter()
+                .map(|text| crate::translation::mock_translate(text, &target_lang))
+                .collect()),
+        },
         "openai" => crate::translation::translate_via_openai(&texts, &target_lang, &config).await,
         "deepseek" => crate::translation::translate_via_deepseek(&texts, &target_lang, &config).await,
-        _ => Ok(texts.iter().map(|t| crate::translation::mock_translate(t, &target_lang)).collect()),
+        _ => Ok(texts
+            .iter()
+            .map(|text| crate::translation::mock_translate(text, &target_lang))
+            .collect()),
     }
 }

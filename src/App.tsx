@@ -9,7 +9,7 @@ import {
   PinnedPage,
   PrivacyPage,
 } from './components';
-import { useTranslate, useDiagnostics, useToast, useHistory } from './hooks';
+import { useTranslate, useDiagnostics, useToast, useHistory, useGlossary, useSidecarStatus } from './hooks';
 import type { HistoryEntry } from './hooks';
 
 const mockHistory: HistoryEntry[] = [
@@ -25,23 +25,10 @@ const mockHistory: HistoryEntry[] = [
   { id: 10, source: 'Stroke Width', target: '描边宽度', mode: '固定区域', engine: 'sqlite-cache', time: '2026-06-22 09:50:14' },
 ];
 
-const mockTerms = [
-  { source: 'Render', target: '渲染' },
-  { source: 'Layer', target: '图层' },
-  { source: 'Mask', target: '蒙版' },
-  { source: 'Stroke', target: '描边' },
-  { source: 'Prompt', target: '提示词' },
-  { source: 'Subdivision', target: '细分' },
-  { source: 'Ambient Occlusion', target: '环境光遮蔽' },
-  { source: 'Preferences', target: '偏好设置' },
-  { source: 'Export Preset', target: '导出预设' },
-  { source: 'Drop Shadow', target: '投影' },
-];
-
 export function App() {
   const [page, setPage] = useState<Page>('home');
   const [darkMode, setDarkMode] = useState(false);
-  const [engine, setEngine] = useState('mock');
+  const [engine, setEngine] = useState('local');
   const [targetLang, setTargetLang] = useState('zh-CN');
   const [apiKey, setApiKey] = useState('');
   const [hoverDelay, setHoverDelay] = useState(700);
@@ -52,6 +39,8 @@ export function App() {
   const translate = useTranslate({ onToast: showToast });
   const { diagnostics, handleDiagnostics } = useDiagnostics();
   const history = useHistory(mockHistory, { onToast: showToast });
+  const glossary = useGlossary();
+  const sidecarStatus = useSidecarStatus();
 
   function handleNavigatePage(targetPage: Page) {
     setPage(targetPage);
@@ -98,6 +87,7 @@ export function App() {
             diagnostics={diagnostics}
             toast={toast}
             summary={translate.summary}
+            sidecarStatus={sidecarStatus}
             onTranslate={translate.handleTranslate}
             onNextScene={translate.handleNextScene}
             onToggleErrorMode={translate.handleToggleErrorMode}
@@ -128,6 +118,7 @@ export function App() {
             hoverDelay={hoverDelay}
             hotkey={hotkey}
             saved={saved}
+            sidecarStatus={sidecarStatus}
             onEngineChange={setEngine}
             onApiKeyChange={setApiKey}
             onTargetLangChange={setTargetLang}
@@ -137,7 +128,19 @@ export function App() {
           />
         )}
 
-        {page === 'terminology' && <TerminologyPage terms={mockTerms} />}
+        {page === 'terminology' && (
+          <TerminologyPage
+            terms={glossary.terms}
+            brandReplacements={glossary.brandReplacements}
+            path={glossary.path}
+            loading={glossary.loading}
+            saving={glossary.saving}
+            error={glossary.error}
+            source={glossary.source}
+            onReload={glossary.reload}
+            onSave={glossary.save}
+          />
+        )}
 
         {page === 'pinned' && <PinnedPage />}
 

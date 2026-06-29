@@ -4,11 +4,43 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check_node_version.mjs",
     "dev": "vite --host 127.0.0.1",
+    "prebuild": "node scripts/check_node_version.mjs",
+    "build": "vite build",
+    "dev:compat": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_vite_compat.ps1 -Mode dev",
+    "dev:ensure": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_vite_if_needed.ps1",
+    "build:compat": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_vite_compat.ps1 -Mode build",
+    "node:compat": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_vite_compat.ps1 -CheckOnly",
+    "tauri:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare_tauri_dev.ps1",
+    "dev:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev_windows.ps1",
+    "services:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local_services_status.ps1",
+    "services:status:json": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/local_services_status.ps1 -Json",
+    "services:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop_local_services.ps1",
+    "services:stop:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop_local_services.ps1 -DryRun",
+    "env:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_desktop_env.ps1",
+    "env:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_desktop_prereqs.ps1",
+    "env:install:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_desktop_prereqs.ps1 -DryRun",
+    "env:open-prereqs": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/open_desktop_prereq_pages.ps1",
+    "env:open-prereqs:dry": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/open_desktop_prereq_pages.ps1 -DryRun",
+    "env:winget:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_winget.ps1",
+    "env:winget:register": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_winget.ps1 -Register",
+    "sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_sidecar.ps1",
+    "sidecar:ensure": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_sidecar_if_needed.ps1",
+    "sidecar:engines": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_sidecar.ps1 -InstallLocalEngines",
+    "models:argos": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install_argos_package.ps1 -From en -To zh",
     "tauri": "tauri",
+    "pretauri:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_desktop_env.ps1",
     "tauri:dev": "tauri dev",
+    "pretauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check_desktop_env.ps1",
+    "tauri:build": "tauri build",
     "check": "tsc --noEmit",
-    "smoke": "python scripts/smoke_check.py"
+    "smoke": "python scripts/smoke_check.py",
+    "test:local-flow": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test_local_flow.ps1",
+    "test:real-machine": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/real_machine_test.ps1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "@tauri-apps/api": "latest",
@@ -19,6 +51,7 @@
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest"
   }

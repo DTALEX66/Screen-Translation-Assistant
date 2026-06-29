@@ -1,4 +1,4 @@
-﻿export interface HistoryEntry {
+export interface HistoryEntry {
   id: number;
   source: string;
   target: string;
@@ -26,12 +26,46 @@ export function HistoryPage({
   onClearFilter,
   onExportCSV,
 }: HistoryPageProps) {
+  const cacheCount = filteredHistory.filter(entry => entry.engine === "sqlite-cache").length;
+
   return (
-    <section className="content">
-      <p className="eyebrow">翻译历史</p>
-      <h1>翻译历史</h1>
-      <p className="lead">浏览所有翻译记录和按模式筛选。</p>
-      <div className="actions">
+    <section className="content client-workspace">
+      <header className="workspace-header">
+        <div>
+          <p className="eyebrow">记录中心</p>
+          <h1>翻译历史</h1>
+          <p className="lead">检索本地翻译记录，快速确认缓存命中和来源场景。</p>
+        </div>
+        <div className="service-pill">
+          <span>当前列表</span>
+          <strong>{filteredHistory.length} 条</strong>
+        </div>
+      </header>
+
+      <section className="client-status-strip">
+        <article>
+          <span>记录数</span>
+          <strong>{filteredHistory.length}</strong>
+          <small>当前筛选</small>
+        </article>
+        <article>
+          <span>缓存命中</span>
+          <strong>{cacheCount}</strong>
+          <small>SQLite / 内存缓存</small>
+        </article>
+        <article>
+          <span>筛选模式</span>
+          <strong>{historyFilter === "all" ? "全部" : historyFilter}</strong>
+          <small>框选 · 悬停 · 固定</small>
+        </article>
+        <article>
+          <span>搜索</span>
+          <strong>{historySearch ? "已启用" : "未启用"}</strong>
+          <small>原文或译文</small>
+        </article>
+      </section>
+
+      <div className="history-toolbar">
         <input
           className="search-input"
           placeholder="搜索原文或译文..."
@@ -48,23 +82,13 @@ export function HistoryPage({
           <option value="固定区域">固定区域</option>
         </select>
         <button onClick={onClearFilter}>清除筛选</button>
+        <button className="primary" onClick={onExportCSV}>导出 CSV</button>
       </div>
+
       <section className="result-panel">
         <div className="panel-header">
-          <h2>共 {filteredHistory.length} 条记录</h2>
-          <button
-            onClick={onExportCSV}
-            style={{
-              border: "1px solid rgba(20,33,51,0.2)",
-              borderRadius: 10,
-              padding: "8px 14px",
-              background: "white",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
-            导出 CSV
-          </button>
+          <h2>本地记录</h2>
+          <span>{filteredHistory.length} 条</span>
         </div>
         {filteredHistory.length === 0 && (
           <div className="empty">暂无匹配记录。</div>
@@ -82,7 +106,7 @@ export function HistoryPage({
             <div className="meta">
               <span>{entry.mode}</span>
               <span className={entry.engine === "sqlite-cache" ? "cache-hit" : ""}>
-                {entry.engine === "sqlite-cache" ? "⚡ 缓存命中" : entry.engine}
+                {entry.engine === "sqlite-cache" ? "缓存命中" : entry.engine}
               </span>
               <span>{entry.time}</span>
             </div>

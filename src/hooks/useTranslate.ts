@@ -13,7 +13,7 @@ const scenes = getMockScenes();
 async function callSimulate(sceneName?: string): Promise<TranslateResponse> {
   try {
     return await invoke("simulate_region_translate", {
-      request: { mode: "mock", targetLanguage: "zh-CN" },
+      request: { mode: "local", targetLanguage: "zh-CN" },
     });
   } catch {
     return getMockResponse(sceneName);

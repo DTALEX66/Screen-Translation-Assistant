@@ -1,25 +1,38 @@
-﻿export function PrivacyPage() {
+export function PrivacyPage() {
   return (
-    <section className="content">
-      <p className="eyebrow">隐私保护</p>
-      <h1>隐私与安全</h1>
-      <p className="lead">本地优先、隐私保护的策略。</p>
+    <section className="content client-workspace">
+      <header className="workspace-header">
+        <div>
+          <p className="eyebrow">本地安全</p>
+          <h1>隐私与安全</h1>
+          <p className="lead">截图、OCR 文本、术语和缓存都按本地优先策略处理。</p>
+        </div>
+        <div className="service-pill good">
+          <span>隐私模式</span>
+          <strong>本地优先</strong>
+        </div>
+      </header>
+
       <div className="privacy-grid">
         <article>
-          <h3>🔀 默认不上传截图</h3>
-          <p>OCR 在本地完成，仅上传纯文本，原始截图不离开设备。</p>
+          <span>截图</span>
+          <h3>不上传截图</h3>
+          <p>截图只用于本机 OCR 流程，不作为云端请求内容。</p>
         </article>
         <article>
-          <h3>📵 应用黑名单</h3>
-          <p>可设置敏感应用列表，不在这些应用中激活翻译。</p>
+          <span>OCR</span>
+          <h3>RapidOCR 本地识别</h3>
+          <p>识别过程在 sidecar 内完成，便于离线和真机测试。</p>
         </article>
         <article>
-          <h3>💾 本地存储</h3>
-          <p>缓存和历史存储在本地 SQLite，不上传云端。</p>
+          <span>翻译</span>
+          <h3>Argos 本地翻译</h3>
+          <p>英文到中文模型安装后，可直接在本机完成翻译。</p>
         </article>
         <article>
-          <h3>🛡️ 不注入进程</h3>
-          <p>通过截图+OCR 方式工作，不修改不注入第三方进程。</p>
+          <span>缓存</span>
+          <h3>本机缓存</h3>
+          <p>OCR 和翻译缓存保存在本地运行时，设置页可清理。</p>
         </article>
       </div>
     </section>

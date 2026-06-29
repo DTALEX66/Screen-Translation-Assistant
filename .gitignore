@@ -1,8 +1,11 @@
 ﻿node_modules/
 dist/
 .vite/
+diagnostics/
+logs/
 __pycache__/
 *.pyc
+.venv/
 .DS_Store
 *.log
 _bak.*

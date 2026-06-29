@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.screenlingua.app",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm tauri:prepare",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build:compat",
     "frontendDist": "../dist"
   },
   "app": {
